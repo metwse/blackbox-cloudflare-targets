@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Reads stdin (should be a yaml).
+yaml="$(cat)"
+
 # Returns with code 1 if the request failed.
 unwrap() {
     success=$(jq -cr .success <<< "$1")
@@ -49,8 +52,8 @@ get_subdomains() {
     done <<< "$(jq -rc .[] <<< "$zones")"
 }
 
-# Genereate config placing subdomains into targets.
-generate_blackbox_config() {
+# Formats domains into YAML list.
+format_list() {
     domains="[ "
 
     # Reads domains line by line from stdin
@@ -66,10 +69,11 @@ generate_blackbox_config() {
         domains+='"'"$domain"'",'
     done;
 
-    domains="${domains::-1}]"
+    echo "${domains::-1}]"
+}
 
-    yq -y ".scrape_configs[0].static_configs[0].targets = $domains" < \
-        prometheus-blackbox.template.yml
+generate_blackbox_config() {
+    yq -y ".scrape_configs[0].static_configs[0].targets = $1"
 }
 
 
@@ -80,6 +84,6 @@ if [ $? != 0 ]; then
     exit 1
 fi
 
-generate_blackbox_config <<< "$subdomains"
+generate_blackbox_config "$(format_list <<< "$subdomains")" <<< "$yaml"
 
 >&2 echo "SUCCESS"
