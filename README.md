@@ -34,3 +34,4 @@ template and will be preserved.
 | Blackbox Exporter | Used for HTTP status/SSL certificate checking. |
 | cURL | |
 | jq | Command-line JSON processor. |
+| yq | Command-line YAML processor. |
