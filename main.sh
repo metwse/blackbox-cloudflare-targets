@@ -1,30 +1,85 @@
 #!/bin/bash
 
+# Returns with code 1 if the request failed.
+unwrap() {
+    success=$(jq -cr .success <<< "$1")
 
-mkdir -p dist
+    if [ "$success" != 'true' ]; then
+        return 1
+    fi
 
-if [ -e dist/subdomains.txt ]; then
-    fetch_subdomains=0
+    jq -cr .result <<< "$1"
+}
 
-    # Ignore current subdomains file and fetch current subdomains if -f flag
-    # has given.
-    for i in "$@"; do
-        if [[ "$i" == '-f' ]]; then
-            fetch_subdomains=1
+# Fetch all subdomains of account.
+get_subdomains() {
+    >&2 echo "Fetching: zones"
+    zones="$(curl "https://api.cloudflare.com/client/v4/zones" \
+        -H "Authorization: Bearer $TOKEN" 2> /dev/null)"
+
+    zones="$(unwrap "$zones")"
+    if [ $? == 1 ]; then
+        return 1
+    fi
+
+    zone_count=$(jq -r '. | length' <<< "$zones")
+    zone_counter=1
+
+    while read -r zone; do
+        >&2 echo "Fetching: dns_records ($(jq -rc .name <<< "$zone"))" \
+            "($zone_counter/$zone_count)"
+        zone_counter=$(( $zone_counter + 1 ))
+
+        records="$(curl "https://api.cloudflare.com/client/v4/zones/$(
+                jq -rc .id <<< "$zone"
+            )/dns_records" -H "Authorization: Bearer $TOKEN" 2> /dev/null)"
+
+        records="$(unwrap "$records")"
+        if [ $? == 1 ]; then
+            return 1
         fi
-    done
-else
-    fetch_subdomains=1
-fi
 
-if [ $fetch_subdomains == 1 ]; then
-    ./get-subdomains.sh > dist/subdomains.txt
-fi
+        while read -r record; do
+            record_type="$(jq -rc .type <<< "$record")"
+
+            if [[ "$record_type" = @(A|AAAA|CNAME) ]]; then
+                jq -rc .name <<< "$record"
+            fi
+        done <<< "$(jq -rc .[] <<< "$records")"
+    done <<< "$(jq -rc .[] <<< "$zones")"
+}
+
+# Genereate config placing subdomains into targets.
+generate_blackbox_config() {
+    domains="[ "
+
+    # Reads domains line by line from stdin
+    while read -r domain; do
+        if [[ "$domain" == \*\.* ]]; then
+            if [ -n "$STAR_REPLACE" ]; then
+                domain="$STAR_REPLACE${domain:1}"
+            else
+                domain="${domain:2}"
+            fi
+        fi
+
+        domains+='"'"$domain"'",'
+    done;
+
+    domains="${domains::-1}]"
+
+    yq -y ".scrape_configs[0].static_configs[0].targets = $domains" < \
+        prometheus-blackbox.template.yml
+}
+
+
+subdomains="$(get_subdomains)"
 
 if [ $? != 0 ]; then
-    echo "ERROR: get-subdomains.sh failed!"
+    >&2 echo "ERROR: get_subdomains failed!"
+    exit 1
 fi
 
-./generate-blackbox-config.sh < dist/subdomains.txt > dist/blackbox.yml
+generate_blackbox_config <<< "$subdomains"
 
-echo "SUCCESS: dist/blackbox.yml"
+>&2 echo "SUCCESS"
