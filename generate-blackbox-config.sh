@@ -18,5 +18,5 @@ done;
 
 domains="${domains::-1}]"
 
-yq -y ".static_configs[0].static_configs[0].targets = $domains" < \
+yq -y ".scrape_configs[0].static_configs[0].targets = $domains" < \
     prometheus-blackbox.template.yml
