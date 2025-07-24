@@ -73,7 +73,7 @@ format_list() {
 }
 
 generate_blackbox_config() {
-    yq -y ".scrape_configs[0].static_configs[0].targets = $1"
+    yq -oy ".scrape_configs[0].static_configs[0].targets = $1"
 }
 
 
